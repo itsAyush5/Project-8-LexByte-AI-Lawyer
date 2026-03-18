@@ -1,5 +1,5 @@
 // ===== Global State =====
-const API_BASE = 'http://localhost:5000';
+const API_BASE = window.location.origin;
 let currentSection = 'consultation';
 let conversationHistory = [];
 
@@ -19,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeQuickQuestions();
     initializeProvisionLinks();
     initializeArticleSearch();
+    initializeClearChat();
+    initializeScrollTop();
     loadParts();
 });
 
@@ -185,10 +187,18 @@ function addBotResponse(response) {
             const articleRef = document.createElement('div');
             articleRef.className = 'article-reference';
             articleRef.innerHTML = `
-                <h4>Article ${article.number}: ${escapeHtml(article.title)}</h4>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <h4>Article ${article.number}: ${escapeHtml(article.title)}</h4>
+                    <button class="copy-btn" title="Copy article text">Copy</button>
+                </div>
                 <p><strong>Part ${article.part}:</strong> ${escapeHtml(article.part_title)}</p>
                 <p>${escapeHtml(article.text.substring(0, 200))}${article.text.length > 200 ? '...' : ''}</p>
             `;
+            
+            articleRef.querySelector('.copy-btn').addEventListener('click', () => {
+                copyToClipboard(article.text, articleRef.querySelector('.copy-btn'));
+            });
+
             messageText.appendChild(articleRef);
         });
     }
@@ -313,12 +323,21 @@ function displayArticles(articles, title) {
             <div class="article-header">
                 <div class="article-number-badge">Art. ${article.number}</div>
                 <div class="article-title-section">
-                    <div class="article-title">${escapeHtml(article.title)}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div class="article-title">${escapeHtml(article.title)}</div>
+                        <button class="copy-btn" title="Copy full article text">Copy</button>
+                    </div>
                     <div class="article-part">Part ${article.part || 'N/A'} - ${escapeHtml(article.part_title || '')}</div>
                 </div>
             </div>
             <div class="article-text">${escapeHtml(article.text.substring(0, 200))}${article.text.length > 200 ? '...' : ''}</div>
         `;
+
+        // Copy button handler
+        articleCard.querySelector('.copy-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyToClipboard(article.text, articleCard.querySelector('.copy-btn'));
+        });
 
         // Add click handler to open modal with full article details
         articleCard.addEventListener('click', () => showArticleModal(article));
@@ -327,6 +346,55 @@ function displayArticles(articles, title) {
 
     // Scroll to articles list
     articlesList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function initializeClearChat() {
+    const clearBtn = document.getElementById('clearChat');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear the chat history?')) {
+                chatMessages.innerHTML = '';
+                conversationHistory = [];
+                // Add initial greeting back
+                addMessage('Welcome to AI Lawyer! I\'m your constitutional legal assistant.', 'bot');
+            }
+        });
+    }
+}
+
+function initializeScrollTop() {
+    const scrollBtn = document.getElementById('scrollTopBtn');
+    if (scrollBtn) {
+        window.addEventListener('scroll', () => {
+            if (window.pageYOffset > 300) {
+                scrollBtn.style.display = 'flex';
+            } else {
+                scrollBtn.style.display = 'none';
+            }
+        });
+
+        scrollBtn.addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    }
+}
+
+async function copyToClipboard(text, btn) {
+    try {
+        await navigator.clipboard.writeText(text);
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.borderColor = 'var(--success-color)';
+        btn.style.color = 'var(--success-color)';
+        
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.borderColor = '';
+            btn.style.color = '';
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy: ', err);
+    }
 }
 
 // ===== Article Modal Functions =====

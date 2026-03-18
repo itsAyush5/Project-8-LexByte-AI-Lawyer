@@ -17,8 +17,12 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 CORS(app)
 
 # Load Indian Constitution data
-with open('constitution_data.json', 'r', encoding='utf-8') as f:
-    constitution_data = json.load(f)
+try:
+    with open('constitution_data.json', 'r', encoding='utf-8') as f:
+        constitution_data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    print(f"Error loading constitution data: {e}")
+    constitution_data = {"parts": [], "summary": {"articles_in_this_database": 0, "parts_covered": []}}
 
 def search_articles(query):
     """Search for relevant constitutional articles based on user query"""
@@ -59,7 +63,16 @@ def search_articles(query):
                 'president': list(range(52, 78)),
                 'parliament': list(range(79, 123)),
                 'supreme court': list(range(124, 148)),
-                'citizenship': ['5', '6', '7', '8', '9', '10', '11']
+                'citizenship': ['5', '6', '7', '8', '9', '10', '11'],
+                'privacy': ['21'],
+                'property': ['300A', '31A', '31B', '31C'],
+                'emergency': ['352', '356', '360'],
+                'secular': ['25', '26', '27', '28'],
+                'amnesty': ['72', '161'],
+                'women': ['15', '39', '42', '51A'],
+                'children': ['24', '39', '45'],
+                'environment': ['48A', '51A'],
+                'language': ['343', '344', '345']
             }
             
             for term, article_numbers in legal_terms.items():
@@ -101,25 +114,45 @@ def generate_legal_advice(query, relevant_articles):
     
     # Add contextual advice based on query type
     query_lower = query.lower()
+    advice_added = False
     
     if any(word in query_lower for word in ['right', 'rights', 'can i', 'allowed']):
-        advice_parts.append("\n**Legal Interpretation:**")
+        if not advice_added: advice_parts.append("\n**Legal Interpretation:**")
         advice_parts.append("The above constitutional provisions establish your rights and protections under Indian law. These are fundamental guarantees that the State must respect.")
+        advice_added = True
     
     if any(word in query_lower for word in ['arrest', 'detention', 'police']):
-        advice_parts.append("\n**Important Rights:**")
+        advice_parts.append("\n**Important Rights regarding Arrest:**")
         advice_parts.append("- You have the right to be informed of grounds for arrest (Article 22)")
         advice_parts.append("- Right to legal representation of your choice")
         advice_parts.append("- Must be produced before magistrate within 24 hours")
         advice_parts.append("- Protection against self-incrimination (Article 20)")
+        advice_added = True
     
     if any(word in query_lower for word in ['discrimination', 'equality', 'equal']):
         advice_parts.append("\n**Equality Provisions:**")
         advice_parts.append("The Constitution guarantees equality before law (Article 14) and prohibits discrimination on grounds of religion, race, caste, sex, or place of birth (Article 15).")
+        advice_added = True
     
     if any(word in query_lower for word in ['speech', 'expression', 'freedom']):
         advice_parts.append("\n**Freedom of Speech:**")
         advice_parts.append("Article 19(1)(a) guarantees freedom of speech and expression, subject to reasonable restrictions in the interest of sovereignty, security, public order, decency, morality, contempt of court, defamation, or incitement to an offence.")
+        advice_added = True
+
+    if any(word in query_lower for word in ['emergency', 'president rule']):
+        advice_parts.append("\n**Emergency Provisions:**")
+        advice_parts.append("The Constitution provides for National Emergency (Art 352), State Emergency (Art 356), and Financial Emergency (Art 360). During emergency, some fundamental rights may be suspended.")
+        advice_added = True
+
+    if any(word in query_lower for word in ['environment', 'forest', 'wildlife']):
+        advice_parts.append("\n**Environmental Protection:**")
+        advice_parts.append("Article 48A (DPSP) and Article 51A(g) (Fundamental Duties) mandate the protection and improvement of the environment.")
+        advice_added = True
+
+    if any(word in query_lower for word in ['language', 'hindi', 'english', 'official']):
+        advice_parts.append("\n**Official Language:**")
+        advice_parts.append("Article 343 declares Hindi in Devanagari script as the official language of the Union, with English continued for official purposes.")
+        advice_added = True
     
     return {
         'advice': '\n'.join(advice_parts),

@@ -57,8 +57,11 @@
                     <!-- Chat Interface -->
                     <div class="chat-container">
                         <div class="chat-header">
-                            <h2>Legal Consultation</h2>
-                            <p>Ask me anything about the Indian Constitution</p>
+                            <div class="chat-header-info">
+                                <h2>Legal Consultation</h2>
+                                <p>Ask me anything about the Indian Constitution</p>
+                            </div>
+                            <button id="clearChat" class="quick-btn" style="margin-left: auto; padding: 0.5rem 1rem; font-size: 0.8rem;">Clear Chat</button>
                         </div>
 
                         <div class="chat-messages" id="chatMessages">
@@ -296,6 +299,8 @@
             </div>
         </div>
     </div>
+
+    <button id="scrollTopBtn" class="scroll-top-btn" title="Go to top">↑</button>
 
     <script src="{{ url_for('static', filename='script.js') }}?v={{ range(1, 10000) | random }}"></script>
 </body>
