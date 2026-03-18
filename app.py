@@ -9,7 +9,7 @@ import os
 app = Flask(__name__, 
             static_folder='static',
             static_url_path='/static',
-            template_folder='templates')
+            template_folder='.')
 
 # Disable caching for static files to prevent CSS loading issues
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
@@ -18,7 +18,7 @@ CORS(app)
 
 # Load Indian Constitution data
 try:
-    with open('constitution_data.json', 'r', encoding='utf-8') as f:
+    with open('static/constitution_data.json', 'r', encoding='utf-8') as f:
         constitution_data = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError) as e:
     print(f"Error loading constitution data: {e}")
@@ -171,7 +171,7 @@ def generate_legal_advice(query, relevant_articles):
 
 @app.route('/')
 def index():
-    """Serve the main application page"""
+    """Serve the main application page from the root directory"""
     return render_template('index.html')
 
 @app.route('/api/consult', methods=['POST'])
@@ -272,7 +272,7 @@ if __name__ == '__main__':
         if open_browser:
             try:
                 import webbrowser
-                file_path = os.path.abspath('templates/index.html')
+                file_path = os.path.abspath('index.html')
                 webbrowser.open(f'file://{file_path}')
                 print(f"Opened {file_path} in default browser.")
             except Exception as e:
