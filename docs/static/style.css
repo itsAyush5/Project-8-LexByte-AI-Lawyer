@@ -72,6 +72,9 @@ body::before {
     margin: 0 auto;
     padding: 0 2rem;
 }
+.container p {
+    font-family: "Baloo Bhai";
+}
 
 /* ===== Header ===== */
 .header {
@@ -1172,4 +1175,8 @@ body::before {
 
 .article-modal-text p:last-child {
     margin-bottom: 0;
+}
+.container a {
+    text-decoration: none;
+    color : var(--text-secondary);
 }
