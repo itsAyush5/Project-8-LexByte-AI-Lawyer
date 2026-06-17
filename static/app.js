@@ -87,35 +87,58 @@
       .map(line => `<p>${line}</p>`)
       .join('');
   }
-  function renderAnswer(question, data, mode = 'AI response') {
-    const answerBox = $('#answer');
-    if (!answerBox) return;
-    const formattedAnswer = formatAnswer(data.answer || '');
-    answerBox.innerHTML = `
-      <div class="message">
-        <div class="question-bubble">${escapeHtml(question)}</div>
-        <div class="answer-card">
-          <span>${escapeHtml(mode)} · ${escapeHtml(data.confidence || 'Static')} confidence</span>
-          <div class="answer-body">${formattedAnswer}</div>
-        </div>
-      </div>`;
+  function consult(question) {
+    const previousPart = activePart;
+    activePart = 'All Parts';
+    const matches = search(question, 5);
+    activePart = previousPart;
+    if (!matches.length) {
+      return {
+        confidence: 'Low',
+        answer: 'No specific Article in the Constitution of India directly matched your query. Try searching for a broader right (e.g., "Fundamental Rights") or a specific topic like "President" or "Panchayat".',
+        relatedArticles: []
+      };
+    }
+    const primary = matches[0];
+    const related = matches.slice(1, 4).map((a) => `Article ${a.number} (${a.title})`).join(', ');
+
+    let answerText = `**Article ${primary.number}: ${primary.title}**\n\n${primary.summary}\n\n`;
+    if (related) {
+      answerText += `Related context can also be found in: ${related}.\n\n`;
+    }
+    answerText += `*Standalone Mode: This answer is generated from the local constitutional database.*`;
+
+    return {
+      confidence: matches.length >= 3 ? 'High' : 'Medium',
+      answer: answerText,
+      relatedArticles: matches
+    };
   }
-  function renderStreamStart(question) {
+  function renderStreamStart(question, isStatic = false) {
     const answerBox = $('#answer');
     if (!answerBox) return;
     answerBox.innerHTML = `
       <div class="message">
         <div class="question-bubble">${escapeHtml(question)}</div>
         <div class="answer-card">
-          <span>Flask AI · Streaming</span>
-          <div class="answer-body" id="streamBody"><span class="cursor-blink">▍</span></div>
+          <span>${isStatic ? 'Static AI mode' : 'Flask AI · Streaming'}</span>
+          <div class="answer-body" id="streamBody">
+            ${isStatic ? '' : '<span class="cursor-blink">▍</span>'}
+          </div>
         </div>
       </div>`;
   }
   async function askQuestion(question) {
     if (!question) return;
-    const canUseApi = window.location.protocol.startsWith('http') && !window.location.hostname.endsWith('github.io');
-    if (canUseApi && typeof fetch === 'function') {
+    const isGitHubPages = window.location.hostname.endsWith('github.io');
+    const isFirebase = window.location.hostname.endsWith('web.app') || window.location.hostname.endsWith('firebaseapp.com');
+    const isStandalone = isGitHubPages || isFirebase;
+
+    // YOUR CLOUDFLARE WORKER URL HERE (once deployed)
+    const PROXY_URL = 'https://bold-wave-210a.ayushkunkulol5.workers.dev';
+
+    // Try Local API first if NOT on a known static host
+    if (!isStandalone && window.location.protocol.startsWith('http')) {
       renderStreamStart(question);
       try {
         const response = await fetch('api/consult', {
@@ -123,52 +146,69 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ question })
         });
-        if (!response.ok) throw new Error('API error');
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.done) break;
-              if (data.text) {
-                fullText += data.text;
-                const body = document.getElementById('streamBody');
-                if (body) {
-                  body.innerHTML = formatAnswer(fullText) + '<span class="cursor-blink">▍</span>';
-                  body.scrollIntoView({ behavior: 'smooth', block: 'end' });
-                }
-              }
-            } catch (_) { }
-          }
+        if (response.ok) {
+          return handleStreamResponse(response);
         }
-        // Remove cursor when done
-        const body = document.getElementById('streamBody');
-        if (body) body.innerHTML = formatAnswer(fullText);
-        return;
-      } catch (_) { }
+      } catch (e) {
+        console.log('Local backend not available.');
+      }
     }
-    // Fallback to static mode
-    const answerBox = $('#answer');
-    if (!answerBox) return;
+
+    // Try Cloudflare Proxy if URL is provided
+    if (PROXY_URL) {
+      renderStreamStart(question);
+      try {
+        const response = await fetch(PROXY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question })
+        });
+        if (response.ok) {
+          return handleStreamResponse(response);
+        }
+      } catch (e) {
+        console.log('Proxy not available.');
+      }
+    }
+
+    // Fallback/Standalone Mode
+    renderStreamStart(question, true);
     const data = consult(question);
-    const formattedAnswer = formatAnswer(data.answer || '');
-    answerBox.innerHTML = `
-      <div class="message">
-        <div class="question-bubble">${escapeHtml(question)}</div>
-        <div class="answer-card">
-          <span>Static AI mode · ${escapeHtml(data.confidence || 'Static')} confidence</span>
-          <div class="answer-body">${formattedAnswer}</div>
-        </div>
-      </div>`;
+    const body = document.getElementById('streamBody');
+    if (body) {
+      body.innerHTML = formatAnswer(data.answer || '');
+    }
+  }
+
+  async function handleStreamResponse(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.done) break;
+          if (data.text) {
+            fullText += data.text;
+            const body = document.getElementById('streamBody');
+            if (body) {
+              body.innerHTML = formatAnswer(fullText) + '<span class="cursor-blink">▍</span>';
+              body.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+          }
+        } catch (_) { }
+      }
+    }
+    const body = document.getElementById('streamBody');
+    if (body) body.innerHTML = formatAnswer(fullText);
   }
   function resetChat() {
     const answerBox = $('#answer');
