@@ -1,6 +1,6 @@
 /**
- * Cloudflare Worker: Gemini AI Proxy for LexByte
- * Securely handles streaming responses while hiding your API Key.
+ * Cloudflare Worker: OpenRouter AI Proxy for LexByte
+ * Securely handles responses while hiding your API Key.
  */
 
 export default {
@@ -20,69 +20,94 @@ export default {
             return new Response("Method Not Allowed", { status: 405 });
         }
 
+        let question;
+        let selectedModel = "google/gemini-2.0-pro-exp-02-05:free";
         try {
-            const { question } = await request.json();
-            if (!question) {
-                return new Response("Missing question", { status: 400 });
-            }
+            const body = await request.json();
+            question = body.question;
+            if (body.model) selectedModel = body.model;
+        } catch (e) {
+            return new Response(
+                JSON.stringify({ error: "Invalid JSON body: " + e.message }),
+                { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+        }
 
-            // 2. Prepare Gemini API Request
-            const API_KEY = env.GEMINI_API_KEY;
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${API_KEY}`;
+        if (!question) {
+            return new Response(
+                JSON.stringify({ error: "Missing 'question' field in request body." }),
+                { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+        }
 
-            const prompt = `You are LexByte AI, an expert AI Lawyer specializing in the Constitution of India.
-Question: "${question}"
-Write a clear, informative answer in flowing paragraphs. Cite Articles naturally. No lists, no bold. 3-5 paragraphs.
-End with a legal disclaimer.`;
+        const API_KEY = env.OPENROUTER_LexAi_API_KEY;
+        if (!API_KEY) {
+            return new Response(
+                JSON.stringify({ error: "OPENROUTER_LexAi_API_KEY secret is not configured in Cloudflare Worker settings." }),
+                { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+        }
 
-            const response = await fetch(API_URL, {
+        try {
+            // 2. Use OpenRouter Chat Completions API
+            const API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+            const systemPrompt = "You are LexByte AI, an expert AI Lawyer specializing in the Constitution of India. Write a clear, informative answer in flowing paragraphs. Cite Articles naturally. No lists, no bold. 3-5 paragraphs. End with a brief legal disclaimer.";
+
+            const orResponse = await fetch(API_URL, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Authorization": `Bearer ${API_KEY}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://lexbyte-ai-lawyer.web.app",
+                    "X-Title": "LexByte AI Lawyer",
+                },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }]
+                    model: selectedModel,
+                    messages: [
+                        { role: "system", "content": systemPrompt },
+                        { role: "user", "content": question }
+                    ]
                 }),
             });
 
-            // 3. Stream back to Frontend
+            if (!orResponse.ok) {
+                const errBody = await orResponse.text();
+                return new Response(
+                    JSON.stringify({ error: `OpenRouter API error ${orResponse.status}: ${errBody}` }),
+                    { status: orResponse.status, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+                );
+            }
+
+            const orData = await orResponse.json();
+            const text = orData?.choices?.[0]?.message?.content;
+
+            if (!text) {
+                return new Response(
+                    JSON.stringify({ error: `OpenRouter returned no text. Response: ${JSON.stringify(orData)}` }),
+                    { status: 502, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+                );
+            }
+
+            // 3. Simulate SSE streaming by sending the full text as chunks
+            const encoder = new TextEncoder();
             const { readable, writable } = new TransformStream();
             const writer = writable.getWriter();
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            const encoder = new TextEncoder();
 
-            (async () => {
-                let buffer = "";
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        writer.write(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-                        writer.close();
-                        break;
-                    }
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split("\n");
-                    buffer = lines.pop();
-
-                    for (const line of lines) {
-                        if (line.startsWith("data: ")) {
-                            try {
-                                const sseData = JSON.parse(line.slice(6));
-                                const text = sseData.candidates?.[0]?.content?.parts?.[0]?.text;
-                                if (text) {
-                                    writer.write(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`));
-                                }
-                            } catch (e) { }
-                        }
-                    }
+            const chunkSize = 80;
+            ctx.waitUntil((async () => {
+                for (let i = 0; i < text.length; i += chunkSize) {
+                    const chunk = text.slice(i, i + chunkSize);
+                    writer.write(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
                 }
-            })();
+                writer.write(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+                writer.close();
+            })());
 
             return new Response(readable, {
                 headers: {
                     "Content-Type": "text/event-stream",
                     "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
                     "Access-Control-Allow-Origin": "*",
                 },
             });

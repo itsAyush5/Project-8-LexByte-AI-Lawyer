@@ -10,7 +10,8 @@
       "constitution.pdf",
       "vapi_env/**",
       "__pycache__/**",
-      ".env"
+      ".env",
+      "templates/**"
     ],
     "rewrites": [
       {

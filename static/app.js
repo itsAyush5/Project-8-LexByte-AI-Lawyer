@@ -1,144 +1,100 @@
-(() => {
-  const articles = Array.isArray(window.CONSTITUTION_ARTICLES) ? window.CONSTITUTION_ARTICLES : [];
-  const stopwords = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'my', 'of', 'on', 'or', 'the', 'to', 'what', 'when', 'where', 'who', 'why', 'with', 'can', 'do', 'does', 'under', 'about', 'please', 'tell', 'me']);
-  const emptyState = `
-    <div class="empty-state">
-      <span class="spark">✧</span>
-      <h3>Begin a consultation</h3>
-      <p>Try a prompt below or type your own question. Responses are grounded in constitutional Articles.</p>
-      <div class="prompt-grid">
-        <button type="button" class="prompt">Explain Article 21 — Right to Life — in plain language.</button>
-        <button type="button" class="prompt">What is the doctrine of basic structure?</button>
-        <button type="button" class="prompt">Difference between Fundamental Rights and Directive Principles.</button>
-        <button type="button" class="prompt">Can the President promulgate an ordinance during Parliament’s session?</button>
-      </div>
-    </div>`;
-  let activePart = 'All Parts';
-  let currentQuery = '';
+(function () {
+  'use strict';
 
-  function $(selector) { return document.querySelector(selector); }
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
-  }
-  function tokens(text) { return String(text || '').toLowerCase().match(/[a-z0-9]+/g)?.filter((word) => !stopwords.has(word)) || []; }
-  function haystack(article) { return `${article.number} ${article.title} ${article.part} ${article.summary} ${(article.keywords || []).join(' ')}`.toLowerCase(); }
-  function partLabel(article) { return (article.part.match(/Part [A-Z]+(?:-[A-Z]+)?|Part [A-Z]+/i) || ['Part'])[0]; }
-  function partName(article) { return article.part.split('—')[0].trim(); }
-  function search(query, limit = 999) {
-    const terms = tokens(query);
-    const filtered = activePart === 'All Parts' ? articles : articles.filter((article) => partName(article) === activePart);
-    if (!terms.length) return filtered.slice(0, limit);
-    return filtered.map((article) => {
-      const text = haystack(article);
-      let score = 0;
-      terms.forEach((term) => {
-        if (term === String(article.number)) score += 40;
-        if (article.title.toLowerCase().includes(term)) score += 14;
-        if (article.part.toLowerCase().includes(term)) score += 8;
-        if (text.includes(term)) score += text.split(term).length - 1;
-      });
-      return { score, article };
-    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.article.number - b.article.number).slice(0, limit).map((item) => item.article);
-  }
-  function snippet(text, max = 170) { return text.length > max ? `${text.slice(0, max).trim()}...` : text; }
-  function renderResults(items) {
-    const matchCount = $('#matchCount');
-    const results = $('#results');
-    if (!matchCount || !results) return;
-    matchCount.textContent = items.length;
-    results.innerHTML = items.slice(0, 24).map((article) => `
-      <article class="article-card" data-article-number="${article.number}">
-        <div class="article-top"><span>${escapeHtml(partLabel(article))}</span><a href="#consult" data-ask-article="${article.number}" aria-label="Ask about Article ${article.number}">↗</a></div>
-        <strong>${article.number}</strong>
-        <h3>${escapeHtml(article.title)}</h3>
-        <p>${escapeHtml(snippet(article.summary))}</p>
-      </article>`).join('') || '<p class="empty-results">No articles found. Try another keyword or clear the selected Part.</p>';
-  }
+  const $ = (selector) => document.querySelector(selector);
+  const escapeHtml = (text) => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  };
+
+  let currentQuery = '';
+  let activePart = 'All Parts';
+  let articles = [];
+  let parts = [];
+  const emptyState = '<div class="empty-state"><span class="spark">✧</span><h3>Begin a consultation</h3><p>Try a prompt below or type your own question. Responses are grounded in constitutional Articles.</p></div>';
+
   function renderFilters() {
-    const filters = $('#partFilters');
-    if (!filters) return;
-    const counts = articles.reduce((acc, article) => {
-      const name = partName(article);
-      acc[name] = (acc[name] || 0) + 1;
-      return acc;
-    }, {});
-    const parts = ['All Parts', ...Object.keys(counts)];
-    filters.innerHTML = parts.map((part) => {
-      const count = part === 'All Parts' ? articles.length : counts[part];
-      return `<button type="button" class="part-chip ${part === activePart ? 'active' : ''}" data-part="${escapeHtml(part)}">${escapeHtml(part)} <span>· ${count}</span></button>`;
-    }).join('');
+    const container = $('#partFilters');
+    if (!container) return;
+    container.innerHTML = `
+      <button type="button" class="filter-chip ${activePart === 'All Parts' ? 'active' : ''}" data-part="All Parts">All Parts</button>
+      ${parts.map((part) => `<button type="button" class="filter-chip ${activePart === part ? 'active' : ''}" data-part="${part}">${part}</button>`).join('')}
+    `;
   }
-  function consult(question) {
-    const previousPart = activePart;
-    activePart = 'All Parts';
-    const matches = search(question, 5);
-    activePart = previousPart;
-    if (!matches.length) return { confidence: 'Low', answer: 'No direct constitutional article was found. Try a more specific right, institution, or article number.', relatedArticles: [] };
-    const primary = matches[0];
-    const related = matches.slice(0, 3).map((article) => `Article ${article.number} — ${article.title}`).join('; ');
-    return { confidence: matches.length >= 3 ? 'High' : 'Medium', answer: `Most relevant: Article ${primary.number} — ${primary.title}. ${primary.summary} Related constitutional hooks include ${related}. This is legal information, not a substitute for advice from a licensed advocate.`, relatedArticles: matches };
+
+  function renderResults(matches) {
+    const container = $('#results');
+    const count = $('#matchCount');
+    if (!container) return;
+    count && (count.textContent = matches.length);
+    if (!matches.length) {
+      container.innerHTML = '<div class="no-results">No articles found matching your search.</div>';
+      return;
+    }
+    container.innerHTML = matches.map((article) => `
+      <article class="article-card">
+        <div class="card-meta">
+          <span class="part-tag">${article.part}</span>
+          <span class="article-id">Article ${article.number}</span>
+        </div>
+        <h3>${article.title}</h3>
+        <p>${article.summary}</p>
+        <button type="button" class="ask-article" data-ask-article="${article.number}">✧ Ask about this article</button>
+      </article>
+    `).join('');
   }
+
+  function search(query, limit = 0) {
+    let filtered = articles;
+    if (activePart !== 'All Parts') {
+      filtered = filtered.filter((a) => a.part === activePart);
+    }
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      filtered = filtered.filter((a) =>
+        String(a.number) === q ||
+        a.title.toLowerCase().includes(q) ||
+        a.summary.toLowerCase().includes(q)
+      );
+    }
+    return limit > 0 ? filtered.slice(0, limit) : filtered;
+  }
+
   function formatAnswer(text) {
-    // Split on double or single newlines into paragraphs
-    return text
-      .split(/\n\n+|\n/)
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
+    if (!text) return '';
+    return text.trim().split('\n\n')
       .map(line => `<p>${line}</p>`)
       .join('');
   }
-  function consult(question) {
-    const previousPart = activePart;
-    activePart = 'All Parts';
-    const matches = search(question, 5);
-    activePart = previousPart;
-    if (!matches.length) {
-      return {
-        confidence: 'Low',
-        answer: 'No specific Article in the Constitution of India directly matched your query. Try searching for a broader right (e.g., "Fundamental Rights") or a specific topic like "President" or "Panchayat".',
-        relatedArticles: []
-      };
-    }
-    const primary = matches[0];
-    const related = matches.slice(1, 4).map((a) => `Article ${a.number} (${a.title})`).join(', ');
 
-    let answerText = `**Article ${primary.number}: ${primary.title}**\n\n${primary.summary}\n\n`;
-    if (related) {
-      answerText += `Related context can also be found in: ${related}.\n\n`;
-    }
-    answerText += `*Standalone Mode: This answer is generated from the local constitutional database.*`;
 
-    return {
-      confidence: matches.length >= 3 ? 'High' : 'Medium',
-      answer: answerText,
-      relatedArticles: matches
-    };
-  }
-  function renderStreamStart(question, isStatic = false) {
+
+  function renderStreamStart(question, isStatic = false, isProxy = false) {
     const answerBox = $('#answer');
     if (!answerBox) return;
     answerBox.innerHTML = `
       <div class="message">
         <div class="question-bubble">${escapeHtml(question)}</div>
         <div class="answer-card">
-          <span>${isStatic ? 'Static AI mode' : 'Flask AI · Streaming'}</span>
+          <span>${isStatic ? 'Static AI mode' : (isProxy ? 'LexByte AI · Securing' : 'LexByte AI · Streaming')}</span>
           <div class="answer-body" id="streamBody">
             ${isStatic ? '' : '<span class="cursor-blink">▍</span>'}
           </div>
         </div>
       </div>`;
   }
+
   async function askQuestion(question) {
     if (!question) return;
-    const isGitHubPages = window.location.hostname.endsWith('github.io');
-    const isFirebase = window.location.hostname.endsWith('web.app') || window.location.hostname.endsWith('firebaseapp.com');
-    const isStandalone = isGitHubPages || isFirebase;
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
 
-    // YOUR CLOUDFLARE WORKER URL HERE (once deployed)
+    // YOUR CLOUDFLARE WORKER URL
     const PROXY_URL = 'https://bold-wave-210a.ayushkunkulol5.workers.dev';
 
-    // Try Local API first if NOT on a known static host
-    if (!isStandalone && window.location.protocol.startsWith('http')) {
+    // 1. Try Local API ONLY if on localhost
+    if (isLocal) {
       renderStreamStart(question);
       try {
         const response = await fetch('api/consult', {
@@ -146,37 +102,55 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ question })
         });
-        if (response.ok) {
-          return handleStreamResponse(response);
-        }
+        if (response.ok) return handleStreamResponse(response);
       } catch (e) {
         console.log('Local backend not available.');
       }
     }
 
-    // Try Cloudflare Proxy if URL is provided
+    // 2. Try Cloudflare Proxy (Standard for production)
     if (PROXY_URL) {
-      renderStreamStart(question);
-      try {
-        const response = await fetch(PROXY_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question })
-        });
-        if (response.ok) {
-          return handleStreamResponse(response);
+      renderStreamStart(question, false, true);
+
+      const fallbackModels = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen3-coder:free",
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "google/gemini-2.0-pro-exp-02-05:free"
+      ];
+
+      let streamHandled = false;
+
+      for (const model of fallbackModels) {
+        try {
+          console.log(`Trying AI Model: ${model}`);
+          const response = await fetch(PROXY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, model: model })
+          });
+
+          if (response.ok) {
+            await handleStreamResponse(response);
+            streamHandled = true;
+            break; // Stop loop if successfully streamed
+          } else {
+            console.warn(`Model ${model} failed with status ${response.status}`);
+          }
+        } catch (e) {
+          console.error(`Cloudflare Proxy error for ${model}:`, e);
         }
-      } catch (e) {
-        console.log('Proxy not available.');
       }
+
+      if (streamHandled) return;
     }
 
-    // Fallback/Standalone Mode
-    renderStreamStart(question, true);
-    const data = consult(question);
+    // 3. Fallback Error State
+    renderStreamStart(question, false, false);
     const body = document.getElementById('streamBody');
     if (body) {
-      body.innerHTML = formatAnswer(data.answer || '');
+      body.innerHTML = formatAnswer('The AI is temporarily unavailable or rate-limited. Please try again in a few minutes.');
     }
   }
 
@@ -210,16 +184,23 @@
     const body = document.getElementById('streamBody');
     if (body) body.innerHTML = formatAnswer(fullText);
   }
+
   function resetChat() {
     const answerBox = $('#answer');
     if (answerBox) answerBox.innerHTML = emptyState;
   }
+
   function askAboutArticle(number) {
     const article = articles.find((item) => String(item.number) === String(number));
     if (article) askQuestion(`Explain Article ${article.number}: ${article.title}`);
   }
+
   function bindEvents() {
-    $('#search')?.addEventListener('input', (event) => { currentQuery = event.target.value; renderResults(search(currentQuery)); });
+    $('#search')?.addEventListener('input', (event) => {
+      currentQuery = event.target.value;
+      renderResults(search(currentQuery));
+    });
+
     $('#partFilters')?.addEventListener('click', (event) => {
       const chip = event.target.closest('[data-part]');
       if (!chip) return;
@@ -227,30 +208,43 @@
       renderFilters();
       renderResults(search(currentQuery));
     });
+
     $('#results')?.addEventListener('click', (event) => {
       const askLink = event.target.closest('[data-ask-article]');
       if (!askLink) return;
       askAboutArticle(askLink.dataset.askArticle);
     });
+
     $('#consultForm')?.addEventListener('submit', (event) => {
       event.preventDefault();
       const input = $('#question');
       askQuestion(input.value.trim());
       input.value = '';
     });
+
     document.addEventListener('click', (event) => {
       const prompt = event.target.closest('.prompt');
       if (prompt) askQuestion(prompt.textContent.trim());
     });
+
     $('#newChat')?.addEventListener('click', resetChat);
   }
+
   function init() {
-    $('#articleTotal') && ($('#articleTotal').textContent = articles.length);
+    // Read data AFTER all scripts have loaded
+    articles = window.CONSTITUTION_ARTICLES || window.constitutionData || [];
+    parts = [...new Set(articles.map((item) => item.part))];
+
+    const total = $('#articleTotal');
+    if (total) total.textContent = articles.length;
     renderFilters();
     renderResults(articles);
     bindEvents();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
