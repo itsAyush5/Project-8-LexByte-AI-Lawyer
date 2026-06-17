@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker: Gemini AI Proxy for LexGlass
+ * Cloudflare Worker: Gemini AI Proxy for LexByte
  * Securely handles streaming responses while hiding your API Key.
  */
 
@@ -30,7 +30,7 @@ export default {
             const API_KEY = env.GEMINI_API_KEY;
             const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${API_KEY}`;
 
-            const prompt = `You are an expert AI Lawyer specializing in the Constitution of India.
+            const prompt = `You are LexByte AI, an expert AI Lawyer specializing in the Constitution of India.
 Question: "${question}"
 Write a clear, informative answer in flowing paragraphs. Cite Articles naturally. No lists, no bold. 3-5 paragraphs.
 End with a legal disclaimer.`;
